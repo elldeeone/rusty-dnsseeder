@@ -13,6 +13,8 @@ FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./
 
+RUN mkdir -p src && printf "fn main() {}\n" > src/main.rs
+
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
