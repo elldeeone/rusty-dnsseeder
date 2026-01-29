@@ -46,7 +46,7 @@ async fn run() -> Result<(), String> {
     logging::init(cfg.no_log_files, &cfg.log_level, &log_file, &err_log_file)?;
     info!("Version {}", version::version());
 
-    let profile_server = if !cfg.profile.is_empty() {
+    let profile_server: Option<profiling::ProfileServer> = if !cfg.profile.is_empty() {
         match profiling::start(&cfg.profile).await {
             Ok(server) => Some(server),
             Err(err) => {
