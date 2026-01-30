@@ -81,7 +81,7 @@ jobs:
           add-rust-environment-hash-key: "false"
           prefix-key: dnsseeder
           key: ${{ runner.os }}-${{ matrix.target || 'native' }}-release
-          save-if: ${{ github.ref == 'refs/heads/master' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install protoc
         uses: arduino/setup-protoc@v3
