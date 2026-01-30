@@ -217,7 +217,7 @@ mod tests {
             grpc_listen: "127.0.0.1:3737".to_string(),
             min_proto_ver: 0,
             min_ua_ver: String::new(),
-            net_suffix: 0,
+            net_suffix: None,
             no_log_files: true,
             log_level: "info".to_string(),
             threads: 8,
