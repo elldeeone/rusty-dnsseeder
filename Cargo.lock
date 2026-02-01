@@ -865,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "dnsseeder"
-version = "0.12.7"
+version = "0.1.0"
 dependencies = [
  "bytes",
  "clap",
