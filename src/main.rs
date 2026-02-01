@@ -196,7 +196,10 @@ async fn creep(
                 if let Err(err) = poll_peer(&adapter, &manager, &cfg, &addr).await {
                     debug!("{}", err);
                     if is_default_seeder(&addr) {
-                        error!("failed to poll default seeder");
+                        error!(
+                            "failed to poll default seeder with address {}:{}",
+                            addr.ip, addr.port
+                        );
                         std::process::exit(1);
                     }
                 }

@@ -13,6 +13,7 @@ const DEFAULT_LISTEN_PORT: &str = "5354";
 const DEFAULT_GRPC_LISTEN_PORT: &str = "3737";
 const DEFAULT_LOG_LEVEL: &str = "info";
 const DEFAULT_THREADS: u8 = 8;
+const DEFAULT_TESTNET_SUFFIX: u16 = 10;
 
 static ACTIVE_CONFIG: OnceCell<Config> = OnceCell::new();
 static PEERS_DEFAULT_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
@@ -24,6 +25,31 @@ pub struct NetworkParams {
     pub dns_seeds: Vec<String>,
     pub accept_unroutable: bool,
 }
+
+struct TestnetVariant {
+    suffix: u16,
+    name: &'static str,
+    default_port: &'static str,
+    dns_seeds: &'static [&'static str],
+    accept_unroutable: bool,
+}
+
+const TESTNET_VARIANTS: &[TestnetVariant] = &[
+    TestnetVariant {
+        suffix: 10,
+        name: "kaspa-testnet-10",
+        default_port: "16211",
+        dns_seeds: &["testnet-10-dnsseed.kas.pa"],
+        accept_unroutable: false,
+    },
+    TestnetVariant {
+        suffix: 12,
+        name: "kaspa-testnet-12",
+        default_port: "16311",
+        dns_seeds: &["testnet-12-dnsseed.kas.pa"],
+        accept_unroutable: false,
+    },
+];
 
 #[derive(Debug, Clone)]
 pub struct NetworkFlags {
@@ -48,7 +74,7 @@ pub struct Config {
     pub grpc_listen: String,
     pub min_proto_ver: u8,
     pub min_ua_ver: String,
-    pub net_suffix: u16,
+    pub net_suffix: Option<u16>,
     pub no_log_files: bool,
     pub log_level: String,
     pub threads: u8,
@@ -155,7 +181,7 @@ pub fn load_config() -> Result<Config, String> {
         grpc_listen: normalize_address("localhost", DEFAULT_GRPC_LISTEN_PORT),
         min_proto_ver: 0,
         min_ua_ver: String::new(),
-        net_suffix: 0,
+        net_suffix: None,
         no_log_files: false,
         log_level: DEFAULT_LOG_LEVEL.to_string(),
         threads: DEFAULT_THREADS,
@@ -196,17 +222,6 @@ pub fn load_config() -> Result<Config, String> {
     cfg.listen = normalize_address(&cfg.listen, DEFAULT_LISTEN_PORT);
 
     resolve_network(&mut cfg, &cli)?;
-
-    if cfg.net_suffix != 0 {
-        if !cfg.network.testnet {
-            return Err("The net suffix can only be used with testnet".to_string());
-        }
-        if cfg.net_suffix != 11 {
-            return Err("The only supported explicit testnet net suffix is 11".to_string());
-        }
-        cfg.network.active_net_params.default_port = "16311".to_string();
-        cfg.network.active_net_params.name = "kaspa-testnet-11".to_string();
-    }
 
     cfg.app_dir = clean_and_expand_path(&cfg.app_dir, &default_app_dir);
     cfg.app_dir = Path::new(&cfg.app_dir)
@@ -331,7 +346,7 @@ fn apply_overrides(cfg: &mut Config, overrides: ConfigOverrides) {
         cfg.min_ua_ver = min_ua_ver;
     }
     if let Some(net_suffix) = overrides.net_suffix {
-        cfg.net_suffix = net_suffix;
+        cfg.net_suffix = Some(net_suffix);
     }
     if let Some(no_log_files) = overrides.no_log_files {
         cfg.no_log_files = no_log_files;
@@ -357,49 +372,60 @@ fn apply_overrides(cfg: &mut Config, overrides: ConfigOverrides) {
 }
 
 fn resolve_network(cfg: &mut Config, cli: &CliArgs) -> Result<(), String> {
-    cfg.network.active_net_params = mainnet_params();
-    let mut num_nets = 0;
-    if cfg.network.testnet {
-        num_nets += 1;
-        cfg.network.active_net_params = testnet_params();
+    // cli flags override
+    cfg.network.testnet |= cli.testnet;
+    cfg.network.simnet |= cli.simnet;
+    cfg.network.devnet |= cli.devnet;
+
+    let net_suffix = cfg.net_suffix;
+    if net_suffix.is_some() && !cfg.network.testnet {
+        return Err("Net suffix can only be used with network=testnet.".to_string());
     }
-    if cfg.network.simnet {
-        num_nets += 1;
-        cfg.network.active_net_params = simnet_params();
-    }
-    if cfg.network.devnet {
-        num_nets += 1;
-        cfg.network.active_net_params = devnet_params();
-    }
-    if num_nets > 1 {
-        return Err("Multiple networks parameters (testnet, simnet, devnet, etc.) cannot be used together. Please choose only one network".to_string());
-    }
+
+    let active = match (cfg.network.testnet, cfg.network.simnet, cfg.network.devnet) {
+        (false, false, false) => mainnet_params(),
+        (true, false, false) => {
+            let suffix = net_suffix.unwrap_or(DEFAULT_TESTNET_SUFFIX);
+            testnet_params_for_suffix(suffix).ok_or_else(|| {
+                format!(
+                    "Unsupported testnet suffix {}. Supported suffixes: {}",
+                    suffix,
+                    supported_testnet_suffixes()
+                )
+            })?
+        }
+        (false, true, false) => simnet_params(),
+        (false, false, true) => devnet_params(),
+        _ => {
+            return Err(
+                "Multiple network parameters (testnet, simnet, devnet, etc.) \
+                 cannot be used together. Please choose only one network."
+                    .to_string(),
+            );
+        }
+    };
+
+    cfg.network.active_net_params = active;
 
     if let Some(path) = cfg.network.override_dag_params_file.clone() {
         if !cfg.network.devnet {
             return Err("override-dag-params-file is allowed only when using devnet".to_string());
         }
+
         let contents = fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let json: serde_json::Value = serde_json::from_str(&contents).map_err(|e| e.to_string())?;
-        if let Some(accept) = json.get("acceptUnroutable").and_then(|v| v.as_bool()) {
-            cfg.network.active_net_params.accept_unroutable = accept;
-        }
-        if let Some(default_port) = json.get("defaultPort").and_then(|v| v.as_str()) {
-            cfg.network.active_net_params.default_port = default_port.to_string();
-        }
-        if let Some(name) = json.get("name").and_then(|v| v.as_str()) {
-            cfg.network.active_net_params.name = name.to_string();
-        }
-    }
 
-    if cli.testnet {
-        cfg.network.testnet = true;
-    }
-    if cli.simnet {
-        cfg.network.simnet = true;
-    }
-    if cli.devnet {
-        cfg.network.devnet = true;
+        let params = &mut cfg.network.active_net_params;
+
+        if let Some(v) = json.get("acceptUnroutable").and_then(|v| v.as_bool()) {
+            params.accept_unroutable = v;
+        }
+        if let Some(v) = json.get("defaultPort").and_then(|v| v.as_str()) {
+            params.default_port = v.to_string();
+        }
+        if let Some(v) = json.get("name").and_then(|v| v.as_str()) {
+            params.name = v.to_string();
+        }
     }
 
     Ok(())
@@ -602,13 +628,32 @@ pub(crate) fn mainnet_params() -> NetworkParams {
     }
 }
 
-pub(crate) fn testnet_params() -> NetworkParams {
-    NetworkParams {
-        name: "kaspa-testnet-10".to_string(),
-        default_port: "16211".to_string(),
-        dns_seeds: vec!["testnet-10-dnsseed.kas.pa".to_string()],
-        accept_unroutable: false,
-    }
+fn testnet_params_for_suffix(suffix: u16) -> Option<NetworkParams> {
+    let variant = testnet_variant(suffix)?;
+    Some(NetworkParams {
+        name: variant.name.to_string(),
+        default_port: variant.default_port.to_string(),
+        dns_seeds: variant
+            .dns_seeds
+            .iter()
+            .map(|seed| seed.to_string())
+            .collect(),
+        accept_unroutable: variant.accept_unroutable,
+    })
+}
+
+fn testnet_variant(suffix: u16) -> Option<&'static TestnetVariant> {
+    TESTNET_VARIANTS
+        .iter()
+        .find(|variant| variant.suffix == suffix)
+}
+
+fn supported_testnet_suffixes() -> String {
+    TESTNET_VARIANTS
+        .iter()
+        .map(|variant| variant.suffix.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub(crate) fn simnet_params() -> NetworkParams {
