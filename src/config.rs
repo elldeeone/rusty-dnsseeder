@@ -46,7 +46,7 @@ const TESTNET_VARIANTS: &[TestnetVariant] = &[
         suffix: 12,
         name: "kaspa-testnet-12",
         default_port: "16311",
-        dns_seeds: &["testnet-12-dnsseed.kas.pa"],
+        dns_seeds: &["tn12-dnsseed.kas.pa"],
         accept_unroutable: false,
     },
 ];
