@@ -1,8 +1,8 @@
 const VALID_CHARACTERS: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-";
 
 const APP_MAJOR: u32 = 0;
-const APP_MINOR: u32 = 12;
-const APP_PATCH: u32 = 7;
+const APP_MINOR: u32 = 1;
+const APP_PATCH: u32 = 1;
 
 pub fn version() -> String {
     let mut version = format!("{}.{}.{}", APP_MAJOR, APP_MINOR, APP_PATCH);
